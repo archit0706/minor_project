@@ -1,0 +1,559 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ranchi Ambulance Router</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+  :root {
+    --panel: #ffffff; --bg: #f6f5f2; --ink: #1c1c1a; --ink2: #55544e; --muted: #8b8a82;
+    --line: #e6e5df; --soft: #f4f3ef; --err: #b42318;
+    --aco: #008300; --google: #2a78d6; --dijkstra: #eb6834; --astar: #1baf7a;
+    --amb: #d93025; --pat: #6d3fd1; --hosp: #1c1c1a;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink);
+    font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  button, select, input { font: inherit; color: inherit; }
+  .app { display: grid; grid-template-columns: 400px 1fr; height: 100vh; }
+  aside { background: var(--panel); border-right: 1px solid var(--line); overflow-y: auto; }
+  .mapwrap { position: relative; }
+  #map { position: absolute; inset: 0; }
+
+  header { padding: 20px 20px 14px; }
+  h1 { font-size: 16px; font-weight: 650; margin: 0 0 3px; letter-spacing: -0.01em; }
+  .sub { margin: 0; color: var(--ink2); font-size: 13px; }
+  section { padding: 14px 20px 16px; border-top: 1px solid var(--line); }
+  .label { margin: 0 0 9px; font-size: 11px; font-weight: 650; letter-spacing: .07em;
+    text-transform: uppercase; color: var(--muted); }
+
+  .pt { display: flex; align-items: center; gap: 10px; width: 100%; margin-bottom: 6px; padding: 8px 10px;
+    background: #fff; border: 1px solid var(--line); border-radius: 8px; text-align: left; }
+  .pt.static { background: var(--soft); cursor: default; }
+  .pt.active { border-color: var(--ink); box-shadow: inset 0 0 0 1px var(--ink); }
+  .dot { width: 22px; height: 22px; flex: none; display: grid; place-items: center; border-radius: 50%;
+    color: #fff; font-size: 11px; font-weight: 700; }
+  .pt .name { font-weight: 560; }
+  .pt .coord { margin-left: auto; color: var(--ink2); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+  .hint { margin: 4px 0 10px; color: var(--ink2); font-size: 12.5px; }
+  select, input[type=number] { width: 100%; padding: 7px 9px; background: #fff;
+    border: 1px solid var(--line); border-radius: 7px; }
+  .field { display: grid; gap: 4px; font-size: 12.5px; color: var(--ink2); }
+  .coords-in { display: grid; grid-template-columns: 1fr 1fr auto; gap: 6px; margin: 6px 0 10px; }
+  .coords-in input { padding: 6px 8px; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+  .coords-in button { padding: 6px 12px; background: var(--soft); border: 1px solid var(--line);
+    border-radius: 7px; cursor: pointer; font-size: 12.5px; font-weight: 560; }
+  .coords-in button:hover { background: var(--line); }
+
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; background: #fff;
+    border: 1px solid var(--line); border-radius: 999px; color: var(--muted); cursor: pointer; font-size: 13px; }
+  .chip[aria-pressed=true] { color: var(--ink); border-color: var(--ink); }
+  .chip[aria-pressed=false] .sw { opacity: .35; }
+  .chip:disabled { cursor: not-allowed; opacity: .5; }
+  .sw { display: inline-block; width: 16px; height: 4px; border-radius: 2px; flex: none; }
+  .sw.dashed { background: repeating-linear-gradient(90deg, var(--google) 0 6px, transparent 6px 9px) !important; }
+  .sw.dotted { background: repeating-linear-gradient(90deg, var(--c) 0 3px, transparent 3px 6px) !important; }
+  .algohint { margin: 8px 0 0; color: var(--muted); font-size: 12px; }
+
+  details.aco { margin-top: 12px; }
+  details.aco summary { cursor: pointer; color: var(--ink2); font-size: 13px; }
+  .params { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; margin-top: 8px; }
+  .params label { display: grid; gap: 3px; font-size: 11.5px; color: var(--muted); }
+  .params input { padding: 6px; }
+
+  .go { width: 100%; padding: 10px 12px; border: 0; border-radius: 8px; background: var(--ink); color: #fff;
+    font-weight: 600; cursor: pointer; }
+  .go:hover { background: #33332f; }
+  .go:disabled { opacity: .55; cursor: progress; }
+  .err { margin: 8px 0 0; color: var(--err); font-size: 13px; }
+
+  #results.stale, #cards.stale { opacity: .45; }
+  .dest { font-size: 15px; font-weight: 600; margin: 0 0 6px; }
+  .tags { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+  .tag { padding: 2px 8px; background: var(--soft); border-radius: 6px; color: var(--ink2); font-size: 12px; }
+
+  table.cmp { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  .cmp th { padding: 0 0 6px; text-align: left; font-size: 11.5px; font-weight: 600; color: var(--muted); }
+  .cmp th.n, .cmp td.n { text-align: right; padding-left: 10px; white-space: nowrap; }
+  .cmp td { padding: 7px 0; border-top: 1px solid var(--line); vertical-align: top; }
+  .cmp tr[data-k] { cursor: pointer; }
+  .cmp tr[data-k]:hover td { background: var(--soft); }
+  .cmp .algo { display: flex; align-items: center; gap: 7px; font-weight: 560; }
+  .bar { height: 4px; margin-top: 5px; border-radius: 2px; }
+  .delta { font-weight: 600; }
+  .note { margin: 10px 0 0; color: var(--ink2); font-size: 12.5px; }
+
+  #cards { padding: 4px 20px 24px; }
+  .card { margin-top: 12px; padding: 14px; background: #fff; border: 1px solid var(--line); border-radius: 10px; }
+  .card:hover { border-color: #cfcec7; }
+  .ch { display: flex; align-items: center; gap: 8px; }
+  .ch b { font-weight: 620; }
+  .eye { margin-left: auto; padding: 3px 9px; background: #fff; border: 1px solid var(--line); border-radius: 6px;
+    color: var(--ink2); cursor: pointer; font-size: 12px; }
+  .about { margin-top: 4px; color: var(--muted); font-size: 12px; }
+  .big { margin-top: 8px; font-size: 26px; font-weight: 650; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+  .big small { font-size: 14px; font-weight: 500; color: var(--ink2); }
+  .legs { display: grid; grid-template-columns: 1fr auto; gap: 3px 12px; margin: 10px 0 0; font-size: 13px;
+    font-variant-numeric: tabular-nums; }
+  .legs dt { color: var(--ink2); }
+  .legs dd { margin: 0; text-align: right; }
+  .meta { margin-top: 10px; color: var(--ink2); font-size: 12.5px; }
+  .spark { position: relative; margin-top: 10px; }
+  .spark svg { display: block; width: 100%; height: 64px; overflow: visible; }
+  .spark .tip { position: absolute; top: -4px; right: 0; color: var(--ink2); font-size: 11.5px;
+    font-variant-numeric: tabular-nums; }
+  details.bd { margin-top: 10px; font-size: 12.5px; }
+  details.bd summary { cursor: pointer; color: var(--ink2); }
+  .bdrows { display: grid; grid-template-columns: 1fr auto; gap: 2px 12px; margin-top: 6px;
+    font-variant-numeric: tabular-nums; color: var(--ink2); }
+  .bdrows span:nth-child(even) { text-align: right; color: var(--ink); }
+
+  .mpin { width: 28px; height: 28px; display: grid; place-items: center; border: 2px solid #fff; border-radius: 50%;
+    color: #fff; font: 700 12px system-ui, sans-serif; box-shadow: 0 1px 4px rgba(0,0,0,.4); }
+  .busy { position: absolute; top: 14px; left: 50%; z-index: 1000; transform: translateX(-50%);
+    padding: 7px 14px; background: var(--ink); color: #fff; border-radius: 999px; font-size: 13px;
+    box-shadow: 0 2px 8px rgba(0,0,0,.25); }
+  .legend { position: absolute; right: 12px; bottom: 26px; z-index: 1000; display: grid; gap: 4px; padding: 8px 10px;
+    background: #fff; border-radius: 8px; box-shadow: 0 1px 5px rgba(0,0,0,.2); font-size: 12px; }
+  .legend div { display: flex; align-items: center; gap: 7px; }
+  .leaflet-container { font: inherit; cursor: crosshair; }
+  .leaflet-interactive { cursor: pointer; }
+  :focus-visible { outline: 2px solid var(--google); outline-offset: 2px; }
+
+  @media (max-width: 760px) {
+    .app { grid-template-columns: 1fr; grid-template-rows: 55vh auto; height: auto; }
+    .mapwrap { order: -1; height: 55vh; }
+    aside { border-right: 0; }
+    .params { grid-template-columns: repeat(3, 1fr); }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside>
+    <header>
+      <h1>Ranchi Ambulance Router</h1>
+      <p class="sub">50 ambulances are stationed across Ranchi. Set the patient's location to auto-dispatch the fastest ambulance.</p>
+    </header>
+
+    <section>
+      <p class="label">Trip</p>
+      <div class="pt static">
+        <span class="dot" style="background:var(--amb)">A</span><span class="name">Ambulance</span>
+        <span class="coord" id="c-ambulance">Auto (50 fixed)</span>
+      </div>
+      <div class="pt active">
+        <span class="dot" style="background:var(--pat)">P</span><span class="name">Patient</span>
+        <span class="coord" id="c-patient"></span>
+      </div>
+      <div class="coords-in">
+        <input type="number" id="pat-lat" step="any" placeholder="Patient Lat" aria-label="Patient latitude">
+        <input type="number" id="pat-lon" step="any" placeholder="Patient Lon" aria-label="Patient longitude">
+        <button type="button" id="set-pat">Set</button>
+      </div>
+      <p class="hint">Click the map, drag the <b>P</b> pin, or enter coordinates to move the patient.</p>
+      <label class="field">Hospital
+        <select id="hospital"><option value="">Auto: fastest general hospital</option></select>
+      </label>
+    </section>
+
+    <section>
+      <p class="label">Algorithms</p>
+      <div class="chips">
+        <button class="chip" data-algo="aco" aria-pressed="true"><span class="sw" style="background:var(--aco)"></span>ACO</button>
+        <button class="chip" data-algo="google" aria-pressed="true"><span class="sw dashed"></span>Google Maps</button>
+        <button class="chip" data-algo="dijkstra" aria-pressed="true"><span class="sw" style="background:var(--dijkstra)"></span>Dijkstra</button>
+        <button class="chip" data-algo="astar" aria-pressed="true"><span class="sw dotted" style="--c:var(--astar)"></span>A*</button>
+      </div>
+      <p class="algohint">Dijkstra always runs in the background: it gives the true fastest route that each algorithm is measured against.</p>
+      <details class="aco">
+        <summary>ACO parameters</summary>
+        <div class="params">
+          <label>Ants<input type="number" id="p-n_ants" min="1" max="200" step="1"></label>
+          <label>Iterations<input type="number" id="p-n_iterations" min="1" max="500" step="1"></label>
+          <label>α<input type="number" id="p-alpha" min="0" max="5" step="0.1"></label>
+          <label>β<input type="number" id="p-beta" min="0" max="10" step="0.1"></label>
+          <label>ρ<input type="number" id="p-rho" min="0.01" max="0.99" step="0.05"></label>
+        </div>
+      </details>
+    </section>
+
+    <section>
+      <label class="field">Month (weather model)
+        <select id="month"></select>
+      </label>
+      <div style="height:12px"></div>
+      <button class="go" id="go">Find routes</button>
+      <p class="err" id="err" hidden></p>
+    </section>
+
+    <section id="results" hidden>
+      <p class="label">Comparison</p>
+      <p class="dest" id="dest"></p>
+      <div class="tags" id="tags"></div>
+      <table class="cmp">
+        <thead><tr><th>Algorithm</th><th class="n">min</th><th class="n">km</th><th class="n">vs Google</th><th class="n">vs best</th></tr></thead>
+        <tbody id="cmp"></tbody>
+      </table>
+      <p class="note" id="gnote"></p>
+    </section>
+    <div id="cards"></div>
+  </aside>
+
+  <div class="mapwrap">
+    <div id="map"></div>
+    <div class="busy" id="busy" hidden>Finding routes…</div>
+    <div class="legend" id="legend" hidden></div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const NAMES = { aco: "ACO", google: "Google Maps", dijkstra: "Dijkstra", astar: "A*" };
+const COLORS = { aco: "#008300", google: "#2a78d6", dijkstra: "#eb6834", astar: "#1baf7a" };
+const ORDER = ["aco", "google", "dijkstra", "astar"];
+const ABOUT = {
+  aco: "Ant Colony Optimization: ants build routes, and pheromone reinforces the fastest ones.",
+  google: "Google Maps Routes API, traffic-aware ETA for an ordinary car.",
+  dijkstra: "Uniform-cost search: the exact fastest route on our edge weights.",
+  astar: "Dijkstra guided by a straight-line heuristic: same optimal route, fewer nodes explored.",
+};
+const swClass = (k) => (k === "google" ? "dashed" : k === "astar" ? "dotted" : "");
+const swatch = (k) => `<span class="sw ${swClass(k)}" style="background:${COLORS[k]};--c:${COLORS[k]}"></span>`;
+const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const min = (s) => (s / 60).toFixed(1);
+const km = (m) => (m / 1000).toFixed(2);
+
+const state = {
+  patient: [23.3700, 85.3400],
+  algos: new Set(ORDER), hidden: new Set(), res: null, bbox: null,
+};
+
+// ---------- map ----------
+const map = L.map("map", { zoomControl: true }).setView([23.36, 85.33], 13);
+L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+  maxZoom: 19, attribution: "&copy; OpenStreetMap contributors",
+}).addTo(map);
+
+const pin = (letter, color) => L.divIcon({
+  className: "", html: `<div class="mpin" style="background:${color}">${letter}</div>`,
+  iconSize: [28, 28], iconAnchor: [14, 14],
+});
+const patientMarker = L.marker(state.patient, { icon: pin("P", "#6d3fd1"), draggable: true, title: "Patient" }).addTo(map);
+let ambMarker = null;
+let hospMarker = null;
+const hospDots = {};
+const routeLayer = L.layerGroup().addTo(map);
+let lines = {};
+
+patientMarker.on("dragend", (e) => {
+  const p = e.target.getLatLng();
+  setPatient([p.lat, p.lng]);
+});
+
+function inBox([lat, lon]) {
+  const [w, s, e, n] = state.bbox;
+  return lat >= s && lat <= n && lon >= w && lon <= e;
+}
+
+map.on("click", (e) => {
+  const p = [e.latlng.lat, e.latlng.lng];
+  if (!inBox(p)) return showErr("That point is outside the Ranchi map area (dashed box).");
+  setPatient(p);
+});
+
+function setPatient(p) {
+  state.patient = p;
+  patientMarker.setLatLng(p);
+  $("#c-patient").textContent = p[0].toFixed(5) + ", " + p[1].toFixed(5);
+  $("#pat-lat").value = p[0].toFixed(5);
+  $("#pat-lon").value = p[1].toFixed(5);
+  showErr("");
+  markStale();
+}
+
+function applyManualPatient() {
+  const lat = parseFloat($("#pat-lat").value);
+  const lon = parseFloat($("#pat-lon").value);
+  if (Number.isNaN(lat) || Number.isNaN(lon)) {
+    return showErr("Enter valid numeric latitude and longitude for the patient.");
+  }
+  if (!inBox([lat, lon])) {
+    return showErr("That point is outside the Ranchi map area (dashed box).");
+  }
+  setPatient([lat, lon]);
+  map.panTo([lat, lon]);
+}
+$("#set-pat").addEventListener("click", applyManualPatient);
+["#pat-lat", "#pat-lon"].forEach((id) =>
+  $(id).addEventListener("keydown", (e) => { if (e.key === "Enter") applyManualPatient(); })
+);
+
+// ---------- hospitals ----------
+function selectHospital(name) {
+  $("#hospital").value = name;
+  showHospitalPin(name ? init.hospitals.find((h) => h.name === name) : null);
+  markStale();
+}
+function showHospitalPin(h) {
+  if (hospMarker) map.removeLayer(hospMarker);
+  hospMarker = h ? L.marker([h.lat, h.lon], { icon: pin("H", "#1c1c1a"), title: h.name })
+    .bindTooltip(h.name).addTo(map) : null;
+}
+function showAmbulancePin(a) {
+  if (ambMarker) map.removeLayer(ambMarker);
+  ambMarker = a ? L.marker([a.lat, a.lon], { icon: pin("A", "#d93025"), title: a.id })
+    .bindTooltip(`Dispatched: ${a.id}`).addTo(map) : null;
+}
+$("#hospital").addEventListener("change", (e) => selectHospital(e.target.value));
+
+// ---------- controls ----------
+document.querySelectorAll(".chip").forEach((c) => c.addEventListener("click", () => {
+  const k = c.dataset.algo, on = c.getAttribute("aria-pressed") !== "true";
+  c.setAttribute("aria-pressed", on);
+  on ? state.algos.add(k) : state.algos.delete(k);
+  markStale();
+}));
+document.querySelectorAll(".params input, #month").forEach((el) => el.addEventListener("change", markStale));
+
+function markStale() {
+  if (!state.res) return;
+  $("#results").classList.add("stale");
+  $("#cards").classList.add("stale");
+  $("#go").textContent = "Update routes";
+}
+function showErr(msg) { $("#err").textContent = msg; $("#err").hidden = !msg; }
+
+// ---------- run ----------
+$("#go").addEventListener("click", async () => {
+  if (!state.algos.size) return showErr("Select at least one algorithm.");
+  const aco = {};
+  for (const k of ["n_ants", "n_iterations", "alpha", "beta", "rho"]) aco[k] = Number($("#p-" + k).value);
+  showErr("");
+  $("#go").disabled = true;
+  $("#busy").hidden = false;
+  $("#busy").textContent = state.algos.has("aco") ? "Running ant colony and searches…" : "Finding routes…";
+  try {
+    const r = await fetch("/api/route", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        patient: state.patient,
+        hospital: $("#hospital").value, month: Number($("#month").value),
+        algorithms: [...state.algos], aco,
+      }),
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || "Request failed");
+    state.res = data;
+    render(data);
+  } catch (e) {
+    showErr(e.message);
+  } finally {
+    $("#go").disabled = false;
+    $("#busy").hidden = true;
+  }
+});
+
+// ---------- render ----------
+function render(res) {
+  $("#results").classList.remove("stale");
+  $("#cards").classList.remove("stale");
+  $("#go").textContent = "Find routes";
+  state.hidden.clear();
+  const keys = ORDER.filter((k) => res.routes[k]);
+  const g = res.routes.google;
+
+  $("#c-ambulance").textContent = `${res.ambulance.id} (${res.ambulance.lat.toFixed(4)}, ${res.ambulance.lon.toFixed(4)})`;
+  showAmbulancePin(res.ambulance);
+
+  // map lines: Dijkstra as a wide halo under ACO so overlapping routes stay visible
+  routeLayer.clearLayers();
+  lines = {};
+  const style = {        // drawn bottom to top
+    dijkstra: { weight: 10, opacity: 0.45 },
+    astar: { weight: 4, opacity: 0.95, dashArray: "1 9" },
+    aco: { weight: 5, opacity: 0.95 },
+    google: { weight: 5, opacity: 0.95, dashArray: "10 8" },
+  };
+  for (const k of Object.keys(style)) {
+    const r = res.routes[k];
+    if (!r) continue;
+    lines[k] = L.polyline(r.coords, { color: COLORS[k], ...style[k], lineCap: "round" })
+      .bindTooltip(`${NAMES[k]} · ${min(r.time_s)} min · ${km(r.distance_m)} km`, { sticky: true })
+      .addTo(routeLayer);
+  }
+  if (!$("#hospital").value) showHospitalPin(res.hospital);
+  const all = Object.values(lines).map((l) => l.getBounds());
+  if (all.length) map.fitBounds(all.reduce((a, b) => a.extend(b)), { padding: [40, 40] });
+
+  $("#legend").hidden = false;
+  $("#legend").innerHTML = keys.map((k) =>
+    `<div>${swatch(k)}${NAMES[k]}</div>`).join("");
+
+  // comparison
+  $("#results").hidden = false;
+  $("#dest").textContent = `${res.ambulance.id} → ${res.hospital.name}`;
+  const w = res.weather;
+  $("#tags").innerHTML = [
+    `${MONTHS[w.month - 1]} · ${w.severity.replace("_", " ")} ×${w.multiplier.toFixed(2)}`,
+    g ? `Live traffic ×${res.traffic_factor.toFixed(2)}` : "No live traffic",
+    res.calibrated ? "Speeds calibrated to Google" : "Default speeds (not calibrated)",
+  ].map((t) => `<span class="tag">${esc(t)}</span>`).join("");
+
+  const maxT = Math.max(...keys.map((k) => res.routes[k].time_s));
+  $("#cmp").innerHTML = keys.map((k) => {
+    const r = res.routes[k];
+    const d = k === "google" ? "baseline" : (r.vs_google_pct != null ? sign(r.vs_google_pct) + "%" : "–");
+    const best = k === "google" ? "–" : (r.gap_pct < 0.05 ? "optimal" : sign(r.gap_pct) + "%");
+    return `<tr data-k="${k}">
+      <td><div class="algo">${swatch(k)}${NAMES[k]}</div>
+          <div class="bar" style="width:${Math.max(2, r.time_s / maxT * 100).toFixed(1)}%;background:${COLORS[k]}"></div></td>
+      <td class="n">${min(r.time_s)}</td><td class="n">${km(r.distance_m)}</td>
+      <td class="n delta">${d}</td><td class="n">${best}</td></tr>`;
+  }).join("");
+  $("#gnote").textContent = g
+    ? "Google's number is a traffic-aware ETA for an ordinary car. Neither estimate is a measured ambulance time."
+    : state.algos.has("google")
+      ? `Google Maps unavailable: ${res.google_error || "no API key"}. Comparison not possible.`
+      : "Turn on Google Maps to compare against its traffic-aware ETA.";
+
+  // cards
+  $("#cards").innerHTML = keys.map((k) => card(k, res.routes[k], res)).join("");
+  for (const k of keys) {
+    const r = res.routes[k];
+    if (r.history) spark(k, r.history, res.routes.dijkstra ? res.routes.dijkstra.time_s : null);
+  }
+  document.querySelectorAll("[data-k]").forEach((el) => {
+    el.addEventListener("mouseenter", () => highlight(el.dataset.k));
+    el.addEventListener("mouseleave", () => highlight(null));
+    el.addEventListener("click", (e) => {
+      if (e.target.closest(".eye, details")) return;
+      const l = lines[el.dataset.k];
+      if (l && map.hasLayer(l)) map.fitBounds(l.getBounds(), { padding: [40, 40] });
+    });
+  });
+  document.querySelectorAll(".eye").forEach((b) => b.addEventListener("click", () => toggleLine(b)));
+}
+
+const sign = (v) => (v >= 0 ? "+" : "−") + Math.abs(v).toFixed(1);
+
+function card(k, r, res) {
+  const legNames = ["Ambulance → Patient", "Patient → Hospital"];
+  const legs = (r.legs || []).map((l, i) =>
+    `<dt>${legNames[i]}</dt><dd>${min(l.time_s)} min · ${km(l.distance_m)} km</dd>`).join("");
+  const gap = r.gap_pct < 0.05 ? "optimal" : `<b>${sign(r.gap_pct)}%</b> vs optimum`;
+  const secs = (s) => (s < 0.1 ? (s * 1000).toFixed(0) + " ms" : s.toFixed(2) + " s");
+  let meta;
+  if (k === "google") meta = `${min(r.static_s)} min without traffic · traffic ×${r.traffic_factor.toFixed(2)} · `
+    + `request ${secs(r.compute_s)}`;
+  else if (k === "aco") meta = `Computed in ${secs(r.compute_s)} · ${r.iterations} iterations · ${r.ants} ants · `
+    + `${r.expanded.toLocaleString()} nodes in search area · ${gap}`;
+  else meta = `Computed in ${secs(r.compute_s)} · ${r.expanded.toLocaleString()} nodes explored · ${gap}`;
+  const vs = r.vs_google_pct != null ? ` · <span class="delta">${sign(r.vs_google_pct)}%</span> vs Google` : "";
+  const b = r.breakdown;
+  const bd = b ? `<details class="bd"><summary>Time breakdown</summary><div class="bdrows">
+      <span>Free-flow driving</span><span>${min(b.free_flow_s)} min</span>
+      <span>Live traffic</span><span>${sign(b.traffic_extra_s / 60)} min</span>
+      <span>Weather</span><span>${sign(b.weather_extra_s / 60)} min</span>
+      <span>Junctions (${b.junctions})</span><span>${sign(b.junction_s / 60)} min</span>
+      <span>Traffic signals (${b.signals})</span><span>${sign(b.signal_s / 60)} min</span>
+    </div></details>` : "";
+  return `<article class="card" data-k="${k}">
+    <div class="ch">${swatch(k)}<b>${NAMES[k]}</b><button class="eye" data-line="${k}" aria-pressed="true">Hide</button></div>
+    <div class="about">${ABOUT[k]}</div>
+    <div class="big">${min(r.time_s)} <small>min · ${km(r.distance_m)} km${vs}</small></div>
+    <dl class="legs">${legs}</dl>
+    <div class="meta">${meta}</div>
+    ${r.history ? `<div class="spark" id="spark-${k}"></div>` : ""}
+    ${bd}
+  </article>`;
+}
+
+function toggleLine(btn) {
+  const k = btn.dataset.line, l = lines[k];
+  if (!l) return;
+  const show = !map.hasLayer(l);
+  show ? l.addTo(routeLayer) : routeLayer.removeLayer(l);
+  btn.textContent = show ? "Hide" : "Show";
+  btn.setAttribute("aria-pressed", show);
+}
+
+function highlight(k) {
+  for (const [key, l] of Object.entries(lines)) {
+    const base = key === "dijkstra" ? 0.45 : 0.95;
+    l.setStyle({ opacity: !k || key === k ? base : 0.12 });
+    if (k === key) l.bringToFront();
+  }
+}
+
+// ACO convergence: best-so-far route time per iteration, with the Dijkstra optimum as a dashed reference
+function spark(k, hist, opt) {
+  const el = $("#spark-" + k), W = 340, H = 64, P = 4;
+  const lo = Math.min(...hist, opt ?? Infinity), hi = Math.max(...hist);
+  const x = (i) => P + (i / Math.max(1, hist.length - 1)) * (W - 2 * P);
+  const y = (v) => H - P - ((v - lo) / Math.max(1e-9, hi - lo)) * (H - 2 * P);
+  const pts = hist.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ");
+  el.innerHTML = `<div class="tip">Convergence · best ${min(hist[hist.length - 1])} min</div>
+    <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="ACO convergence">
+      ${opt != null ? `<line x1="${P}" x2="${W - P}" y1="${y(opt)}" y2="${y(opt)}" stroke="${COLORS.dijkstra}" stroke-width="1.5" stroke-dasharray="4 4" vector-effect="non-scaling-stroke"/>` : ""}
+      <polyline points="${pts}" fill="none" stroke="${COLORS[k]}" stroke-width="2" vector-effect="non-scaling-stroke"/>
+      <line class="cross" y1="0" y2="${H}" stroke="#8b8a82" stroke-width="1" vector-effect="non-scaling-stroke" visibility="hidden"/>
+    </svg>`;
+  const svg = el.querySelector("svg"), cross = svg.querySelector(".cross"), tip = el.querySelector(".tip");
+  svg.addEventListener("mousemove", (e) => {
+    const rect = svg.getBoundingClientRect();
+    const i = Math.round(((e.clientX - rect.left) / rect.width * W - P) / (W - 2 * P) * (hist.length - 1));
+    const j = Math.max(0, Math.min(hist.length - 1, i));
+    cross.setAttribute("x1", x(j)); cross.setAttribute("x2", x(j)); cross.setAttribute("visibility", "visible");
+    tip.textContent = `Iteration ${j + 1} · ${min(hist[j])} min` + (opt != null ? ` (optimum ${min(opt)})` : "");
+  });
+  svg.addEventListener("mouseleave", () => {
+    cross.setAttribute("visibility", "hidden");
+    tip.textContent = `Convergence · best ${min(hist[hist.length - 1])} min`;
+  });
+}
+
+// ---------- init ----------
+MONTHS.forEach((m, i) => $("#month").add(new Option(m, i + 1)));
+$("#month").value = new Date().getMonth() + 1;
+
+let init;
+(async () => {
+  init = await (await fetch("/api/init")).json();
+  state.bbox = init.bbox;
+  const [w, s, e, n] = init.bbox;
+  L.rectangle([[s, w], [n, e]], { color: "#8b8a82", weight: 1, dashArray: "4 6", fill: false, interactive: false }).addTo(map);
+
+  for (const a of (init.ambulances || [])) {
+    L.circleMarker([a.lat, a.lon], {
+      radius: 4.5, color: "#fff", weight: 1.5, fillColor: "#d93025", fillOpacity: 0.85,
+    }).bindTooltip(`${a.id} (fixed)`).addTo(map);
+  }
+
+  const sel = $("#hospital");
+  for (const h of init.hospitals) {
+    sel.add(new Option(h.name + (h.specialty ? ` (${h.specialty})` : ""), h.name));
+    hospDots[h.name] = L.circleMarker([h.lat, h.lon], {
+      radius: 6, color: "#fff", weight: 2, fillColor: "#55544e", fillOpacity: 1,
+    }).bindTooltip(h.name + (h.specialty ? ` · ${h.specialty}` : "") + " — click to select")
+      .on("click", (ev) => { L.DomEvent.stopPropagation(ev); selectHospital(h.name); })
+      .addTo(map);
+  }
+  $("#month").value = init.month;
+  for (const [k, v] of Object.entries(init.aco)) $("#p-" + k).value = v;
+  if (!init.google) {
+    const c = document.querySelector('[data-algo="google"]');
+    c.disabled = true; c.setAttribute("aria-pressed", "false");
+    c.title = "Add GOOGLE_MAPS_API_KEY to .env to enable";
+    state.algos.delete("google");
+  }
+  document.querySelectorAll(".chip").forEach((c) => c.setAttribute("aria-pressed", state.algos.has(c.dataset.algo)));
+  setPatient(state.patient);
+})();
+</script>
+</body>
+</html>

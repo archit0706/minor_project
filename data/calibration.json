@@ -1,0 +1,29 @@
+{
+ "speeds_kmh": {
+  "major": 41.75,
+  "mid": 33.24,
+  "minor": 23.74
+ },
+ "junction_delay_s": 6.98,
+ "calibrated": true,
+ "n_samples": 40,
+ "holdout": {
+  "n_train": 28,
+  "n_test": 12,
+  "before": {
+   "mape_static_%": 32.23645661201631,
+   "mape_traffic_eta_%": 32.23645661201631,
+   "mean_signed_%": -32.23645661201631,
+   "mae_s": 433.41506506396564,
+   "distance_mape_%": 8.832584992402936
+  },
+  "after": {
+   "mape_static_%": 9.425693507275842,
+   "mape_traffic_eta_%": 9.42569350727584,
+   "mean_signed_%": 0.46092097793722225,
+   "mae_s": 123.11858548650356,
+   "distance_mape_%": 9.14144657354881
+  }
+ },
+ "fit_target": "Google Routes API staticDuration (car, no live traffic)"
+}

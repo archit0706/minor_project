@@ -1,0 +1,6 @@
+.env
+__pycache__/
+output/
+models/
+cache/
+data/ranchi_network.graphml
